@@ -21,15 +21,29 @@ class OrderBook:
         self.ask    = SortedDict()
         self.orders = {}
 
-    def add_order(self):
-        self.orders[Data.order_id] = {
-            'order_id': Data.order_id ,
-            'price': Data.price, 
-            'volume': Data.volume, 
-            'side': Data.side, 
-            'timestamps': Data.timestamps
-        }
+    def add_order(self, order: Data):
+        
+        if order.volume <= 0:
+            raise ValueError('volume cannont be 0 or less')
+        self.orders[order.order_id] = order
 
-        if Data.price not in self.orders:
-            self.orders[Data.price] = deque()
-            self.orders[Data.price].append(self.orders)
+        book_side = self.bid if order.side == Side.BID else self.ask
+        
+        if order.price not in book_side:
+            book_side[order.price] = deque()
+        book_side[order.price].append(order)
+
+    def cancel_order(self, order_id: uuid.UUID):
+        
+
+        if order_id in self.orders:
+            self.orders.pop(order_id, None)
+
+            side = self.orders['side']
+            if side == Side.BID:
+                self.bid.pop(order_id, None)
+            elif side == Side.ASK:
+                self.ask.pop(order_id, None)
+            
+        if not Data.price:
+                del Data.price
