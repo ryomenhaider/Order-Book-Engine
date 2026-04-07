@@ -1,0 +1,12 @@
+[project]
+name = "orderbook-engine"
+version = "0.1.0"
+description = "High-performance order book with TUI"
+requires-python = ">=3.10"
+dependencies = [
+    "sortedcontainers",
+    "textual",
+]
+
+[tool.uv]
+dev-dependencies = []

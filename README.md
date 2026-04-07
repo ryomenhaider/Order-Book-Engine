@@ -23,7 +23,7 @@ orderbook_engine/
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 Required dependencies:
