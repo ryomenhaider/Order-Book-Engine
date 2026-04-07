@@ -14,7 +14,6 @@ class Data:
     timestamps: datetime = field(default_factory=datetime.now)
     order_id: uuid.UUID = field(default_factory=uuid.uuid4)
 
-    # These MUST be inside the Data class
     def __eq__(self, other):
         if not isinstance(other, Data):
             return NotImplemented
@@ -74,3 +73,39 @@ class OrderBook:
             return None
         
         return self.best_ask() - self.best_bid()
+    
+    def match(self, order: Data):
+        if order.side == Side.ASK:
+            while order.volume > 0 and self.bid and order.price <= self.best_bid():
+                best_bid_price = self.best_bid()
+                order_queue = self.bid[best_bid_price]
+                maker_order = order_queue[0]
+
+                match_volume = min(order.volume, maker_order.volume)
+                order.volume -= match_volume
+                maker_order.volume -= match_volume
+
+                if maker_order.volume == 0:
+                    order_queue.popleft()
+                    del self.orders[maker_order.order_id]
+                    if not order_queue:
+                        del self.bid[best_bid_price]
+
+        elif order.side == Side.BID:
+            while order.volume > 0 and self.ask and order.price >= self.best_ask():
+                best_ask_price = self.best_ask()
+                order_queue = self.ask[best_ask_price]
+                maker_order = order_queue[0]
+
+                match_volume = min(order.volume, maker_order.volume)
+                order.volume -= match_volume
+                maker_order.volume -= match_volume
+
+                if maker_order.volume == 0:
+                    order_queue.popleft()
+                    del self.orders[maker_order.order_id]
+                    if not order_queue:
+                        del self.ask[best_ask_price]
+        
+        if order.volume > 0:
+            self.add_order(order)
