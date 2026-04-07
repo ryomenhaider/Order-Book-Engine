@@ -2,17 +2,35 @@ import uuid
 from decimal import Decimal
 from datetime import datetime
 from enums import Side
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, InitVar
 from sortedcontainers import SortedDict
 from collections import deque
 
 @dataclass
 class Data:
-    price: Decimal
-    volume: int
-    side: Side
-    timestamps: datetime = field(default_factory=datetime.now)
-    order_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    price_init: InitVar[Decimal]
+    side_init: InitVar[Side]
+    volume: int  
+    time_init: InitVar[datetime] = field(default=None)
+    id_init: InitVar[uuid.UUID] = field(default=None)
+
+    def __post_init__(self, price_init, side_init, time_init, id_init):
+        self._price = price_init
+        self._side = side_init
+        self._timestamps = time_init or datetime.now()
+        self._order_id = id_init or uuid.uuid4()
+
+    @property
+    def price(self) -> Decimal: return self._price
+
+    @property
+    def side(self) -> Side: return self._side
+
+    @property
+    def timestamps(self) -> datetime: return self._timestamps
+
+    @property
+    def order_id(self) -> uuid.UUID: return self._order_id
 
     def __eq__(self, other):
         if not isinstance(other, Data):
@@ -75,6 +93,10 @@ class OrderBook:
         return self.best_ask() - self.best_bid()
     
     def match(self, order: Data):
+
+        if order.volume <= 0:
+            raise ValueError('the volume can the 0')
+
         if order.side == Side.ASK:
             while order.volume > 0 and self.bid and order.price <= self.best_bid():
                 best_bid_price = self.best_bid()
@@ -109,3 +131,16 @@ class OrderBook:
         
         if order.volume > 0:
             self.add_order(order)
+
+    def get_depth(self, n):
+        def aggregate_side(book_side):
+            result = []
+            for price in list(book_side.keys())[:n]:
+                total_volume = sum(order.volume for order in book_side[price])
+                result.append([float(price), total_volume])
+            return result
+
+        return {
+            "bids": aggregate_side(self.bid),
+            "asks": aggregate_side(self.ask)
+        }
