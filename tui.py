@@ -1,116 +1,13 @@
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Button, Input
+from textual.widgets import Header, Footer, Static, Input, Button
 from textual.containers import Container, Horizontal, Vertical
-from textual.widget import Widget
-from textual.reactive import reactive
-from textual import work
+from textual.binding import Binding
+import threading
 import random
-import asyncio
 
 from orderbook import OrderBook, Data
 from enums import Side
 from decimal import Decimal
-
-
-class OrderBookWidget(Widget):
-    book = reactive(OrderBook())
-    depth = reactive(10)
-
-    def __init__(self):
-        super().__init__()
-        self.orderbook = OrderBook()
-        self.trades = []
-
-    def compose(self) -> ComposeResult:
-        yield Vertical(
-            Static("🟢 BIDS", classes="title bid-title"),
-            Static("", id="bids-display"),
-            Static("─" * 40, classes="spread-line"),
-            Static("", id="spread-display"),
-            Static("─" * 40, classes="spread-line"),
-            Static("🔴 ASKS", classes="title ask-title"),
-            Static("", id="asks-display"),
-            id="orderbook-panel",
-        )
-
-    def watch_book(self):
-        self.refresh_display()
-
-    def refresh_display(self):
-        depth = self.orderbook.get_depth(self.depth)
-
-        bids_text = ""
-        for price, vol in depth["bids"]:
-            bar_width = min(int(vol / 100), 30)
-            bar = "█" * bar_width
-            bids_text += f"{price:>10.2f} │ {vol:>6} │ {bar}\n"
-
-        asks_text = ""
-        for price, vol in depth["asks"]:
-            bar_width = min(int(vol / 100), 30)
-            bar = "█" * bar_width
-            asks_text += f"{price:>10.2f} │ {vol:>6} │ {bar}\n"
-
-        spread = self.orderbook.bid_ask_spread()
-        spread_text = (
-            f"Spread: {float(spread) if spread else 'N/A':.2f}"
-            if spread
-            else "No spread"
-        )
-
-        self.query_one("#bids-display", Static).update(bids_text or "No bids")
-        self.query_one("#asks-display", Static).update(asks_text or "No asks")
-        self.query_one("#spread-display", Static).update(spread_text)
-
-    def add_bid(self, price: float, volume: int):
-        order = Data(Decimal(str(price)), Side.BID, volume)
-        self.orderbook.add_order(order)
-        self.refresh_display()
-
-    def add_ask(self, price: float, volume: int):
-        order = Data(Decimal(str(price)), Side.ASK, volume)
-        self.orderbook.add_order(order)
-        self.refresh_display()
-
-    def add_market_order(self, side: Side, volume: int, base_price: float = 100.0):
-        if side == Side.BID:
-            price = Decimal(str(base_price + random.uniform(0, 2)))
-        else:
-            price = Decimal(str(base_price - random.uniform(0, 2)))
-        order = Data(price, side, volume)
-        self.orderbook.match(order)
-        self.refresh_display()
-
-
-class TickerWidget(Widget):
-    def compose(self) -> ComposeResult:
-        yield Horizontal(
-            Static("BTC/USD", classes="ticker-symbol"),
-            Static("$99,450.00", classes="ticker-price"),
-            Static("▲ 2.34%", classes="ticker-change"),
-            id="ticker-bar",
-        )
-
-
-class OrderPanel(Widget):
-    def __init__(self, book_widget: OrderBookWidget):
-        super().__init__()
-        self.book_widget = book_widget
-
-    def compose(self) -> ComposeResult:
-        yield Vertical(
-            Static("📝 PLACE ORDER", classes="panel-title"),
-            Horizontal(
-                Button("BID", variant="success", id="bid-btn"),
-                Button("ASK", variant="danger", id="ask-btn"),
-                Button("MATCH", variant="warning", id="match-btn"),
-            ),
-            Horizontal(
-                Input(placeholder="Price", id="price-input"),
-                Input(placeholder="Volume", id="volume-input"),
-            ),
-            id="order-panel",
-        )
 
 
 class OrderBookTUI(App):
@@ -119,198 +16,274 @@ class OrderBookTUI(App):
         background: $surface;
     }
     
-    # main-container {
+    #main {
+        layout: grid;
+        grid-size: 2;
+    }
+    
+    #left-panel {
+        width: 100%;
         height: 100%;
-        layout: horizontal;
     }
     
-    # left-panel {
-        width: 60%;
-        border: solid $primary;
-        padding: 1;
+    #right-panel {
+        width: 100%;
+        height: 100%;
     }
     
-    # right-panel {
-        width: 40%;
-        border: solid $accent;
-        padding: 1;
-    }
-    
-    # orderbook-panel {
+    #orderbook-container {
         height: 100%;
         background: $panel;
-        border: solid $primary;
-        padding: 1;
     }
     
-    .title {
-        text-align: center;
+    .header-row {
         text-style: bold;
-        padding: 1;
+        text-align: center;
     }
     
-    .bid-title {
+    .bid-header {
         color: $success;
     }
     
-    .ask-title {
+    .ask-header {
         color: $error;
     }
     
-    #bids-display, #asks-display {
-        font: monospace;
-        color: $text;
-        text-align: left;
-    }
-    
-    .spread-line {
-        color: $text-muted;
-        text-align: center;
-    }
-    
-    #ticker-bar {
-        height: 3;
-        background: $primary-darken-1;
-        align: center middle;
-    }
-    
-    .ticker-symbol {
-        text-style: bold;
-        color: $text;
-        width: 10;
-    }
-    
-    .ticker-price {
-        text-style: bold;
-        color: $success;
-        width: 15;
-    }
-    
-    .ticker-change {
-        color: $success;
-        width: 12;
-    }
-    
-    # order-panel {
+    #bids-list, #asks-list {
         height: 100%;
-        background: $panel;
     }
     
-    .panel-title {
-        text-style: bold;
+    .row {
+        width: 100%;
+    }
+    
+    .bid-row {
+        color: $success;
+    }
+    
+    .ask-row {
+        color: $error;
+    }
+    
+    .spread-row {
         text-align: center;
-        color: $text;
+        color: $text-muted;
+    }
+    
+    #form-container {
+        height: auto;
+        background: $panel;
+        border: solid $primary;
         padding: 1;
     }
     
-    # order-panel Horizontal {
-        height: auto;
-        margin: 1 0;
+    #order-form {
+        width: 100%;
+    }
+    
+    .form-label {
+        width: 20;
+        text-style: bold;
     }
     
     Input {
-        margin: 1;
+        width: 100%;
     }
     
-    Button {
-        margin: 1;
+    .btn-row {
+        height: auto;
     }
     
     #trade-log {
         height: 100%;
         background: $panel;
-        border: solid $accent;
-        padding: 1;
     }
     
-    .trade-title {
+    .log-header {
         text-style: bold;
         text-align: center;
-        color: $text;
-        padding: 1;
+        color: $accent;
     }
     
-    # trades-display {
-        font: monospace;
+    #log-content {
+    }
+    
+    .ticker {
+        text-style: bold;
+        background: $primary-darken-1;
+    }
+    
+    .ticker-symbol {
+        color: $text;
+    }
+    
+    .ticker-price {
+        color: $success;
+    }
+    
+    .ticker-change {
+        color: $text-muted;
     }
     """
 
+    BINDINGS = [
+        Binding("q", "quit", "Quit"),
+        Binding("b", "add_bid", "Bid"),
+        Binding("a", "add_ask", "Ask"),
+    ]
+
     def __init__(self):
         super().__init__()
-        self.book_widget = OrderBookWidget()
-        self.trade_history = []
+        self.orderbook = OrderBook()
+        self.trades = []
+        self._running = True
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Container(
-            Vertical(TickerWidget(), self.book_widget, id="left-panel"),
-            Vertical(
-                OrderPanel(self.book_widget),
-                Vertical(
-                    Static("📜 TRADE HISTORY", classes="trade-title"),
-                    Static("", id="trades-display"),
-                    id="trade-log",
-                ),
-                id="right-panel",
-            ),
-            id="main-container",
-        )
+
+        with Container(id="main"):
+            with Vertical(id="left-panel"):
+                yield Horizontal(
+                    Static("BTC/USD", classes="ticker-symbol"),
+                    Static("$100.00", classes="ticker-price"),
+                    Static("+0.00%", classes="ticker-change"),
+                    classes="ticker",
+                    id="ticker-bar",
+                )
+
+                with Vertical(id="orderbook-container"):
+                    yield Static("BIDS", classes="header-row bid-header")
+                    yield Static("", id="bids-display")
+                    yield Static("─" * 50, classes="spread-row")
+                    yield Static("", id="spread-display")
+                    yield Static("─" * 50, classes="spread-row")
+                    yield Static("ASKS", classes="header-row ask-header")
+                    yield Static("", id="asks-display")
+
+            with Vertical(id="right-panel"):
+                with Vertical(id="form-container"):
+                    yield Static("PLACE ORDER", classes="header-row")
+                    yield Horizontal(
+                        Static("Side:", classes="form-label"),
+                        Input(placeholder="BID/ASK", id="side-input"),
+                        id="side-row",
+                    )
+                    yield Horizontal(
+                        Static("Price:", classes="form-label"),
+                        Input(placeholder="100.00", id="price-input"),
+                        id="price-row",
+                    )
+                    yield Horizontal(
+                        Static("Volume:", classes="form-label"),
+                        Input(placeholder="100", id="volume-input"),
+                        id="volume-row",
+                    )
+                    yield Horizontal(
+                        Button("Submit Order", variant="primary", id="submit-btn"),
+                        Button("Cancel", variant="default", id="cancel-btn"),
+                        classes="btn-row",
+                    )
+                    yield Static(
+                        "Press B for BID, A for ASK, ENTER to submit",
+                        classes="log-header",
+                    )
+
+                with Vertical(id="trade-log"):
+                    yield Static("RECENT TRADES", classes="log-header")
+                    yield Static("", id="log-content")
+
         yield Footer()
 
     def on_mount(self) -> None:
-        self.simulate_market()
+        self.populate_mock_data()
+        self.refresh_orderbook()
 
-    @work(exclusive=True)
-    async def simulate_market(self):
-        base_price = 100.0
-        for _ in range(20):
-            price = base_price + random.uniform(-5, 5)
+    def populate_mock_data(self):
+        base = 100.0
+        for _ in range(15):
+            price = base + random.uniform(-3, 3)
             volume = random.randint(50, 500)
-
-            if random.random() < 0.5:
-                self.book_widget.add_bid(price, volume)
-            else:
-                self.book_widget.add_ask(price, volume)
-
-            await asyncio.sleep(0.1)
-
-        for _ in range(5):
-            volume = random.randint(100, 300)
             side = random.choice([Side.BID, Side.ASK])
-            self.book_widget.add_market_order(side, volume, base_price)
-            await asyncio.sleep(0.2)
+            order = Data(Decimal(str(price)), side, volume)
+            self.orderbook.add_order(order)
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def refresh_orderbook(self):
+        depth = self.orderbook.get_depth(12)
+
+        bids_text = ""
+        for price, vol in depth["bids"]:
+            pct = int((vol / 1000) * 20)
+            bar = "█" * pct
+            bids_text += f"{price:>10.2f}  {vol:>5}  {bar}\n"
+
+        asks_text = ""
+        for price, vol in depth["asks"]:
+            pct = int((vol / 1000) * 20)
+            bar = "█" * pct
+            asks_text += f"{price:>10.2f}  {vol:>5}  {bar}\n"
+
+        spread = self.orderbook.bid_ask_spread()
+        spread_str = f"Spread: {float(spread):.2f}" if spread else "No spread"
+
+        self.query_one("#bids-display", Static).update(bids_text or "No orders")
+        self.query_one("#asks-display", Static).update(asks_text or "No orders")
+        self.query_one("#spread-display", Static).update(spread_str)
+
+    def add_order_from_form(self):
+        side_input = self.query_one("#side-input", Input)
         price_input = self.query_one("#price-input", Input)
         volume_input = self.query_one("#volume-input", Input)
 
         try:
+            side_str = side_input.value.upper().strip()
             price = float(price_input.value) if price_input.value else 100.0
             volume = int(volume_input.value) if volume_input.value else 100
-        except ValueError:
-            return
 
-        if event.button.id == "bid-btn":
-            self.book_widget.add_bid(price, volume)
-            self.add_trade("BID", price, volume)
-        elif event.button.id == "ask-btn":
-            self.book_widget.add_ask(price, volume)
-            self.add_trade("ASK", price, volume)
-        elif event.button.id == "match-btn":
-            self.book_widget.add_market_order(Side.BID, volume, price)
-            self.book_widget.add_market_order(Side.ASK, volume, price)
-            self.add_trade("MATCH", price, volume)
+            if side_str not in ["BID", "ASK", "B", "A"]:
+                return
 
-        price_input.value = ""
-        volume_input.value = ""
+            side = Side.BID if side_str in ["BID", "B"] else Side.ASK
 
-    def add_trade(self, side: str, price: float, volume: int):
-        self.trade_history.insert(0, f"{side:5} │ {price:>8.2f} │ {volume:>5}")
-        if len(self.trade_history) > 10:
-            self.trade_history = self.trade_history[:10]
+            order = Data(Decimal(str(price)), side, volume)
+            self.orderbook.match(order)
 
-        trades_text = "\n".join(self.trade_history)
-        self.query_one("#trades-display", Static).update(trades_text)
+            self.refresh_orderbook()
+            self.add_trade_log(side, price, volume)
+
+            side_input.value = ""
+            price_input.value = ""
+            volume_input.value = ""
+
+        except (ValueError, Exception):
+            pass
+
+    def add_trade_log(self, side: Side, price: float, volume: int):
+        side_str = "BID" if side == Side.BID else "ASK"
+        self.trades.insert(0, f"{side_str:4}  {price:>8.2f}  {volume:>5}")
+        if len(self.trades) > 15:
+            self.trades = self.trades[:15]
+
+        self.query_one("#log-content", Static).update("\n".join(self.trades))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "submit-btn":
+            self.add_order_from_form()
+        elif event.button.id == "cancel-btn":
+            self.query_one("#side-input", Input).value = ""
+            self.query_one("#price-input", Input).value = ""
+            self.query_one("#volume-input", Input).value = ""
+
+    def action_add_bid(self):
+        self.query_one("#side-input", Input).value = "BID"
+        self.query_one("#price-input", Input).focus()
+
+    def action_add_ask(self):
+        self.query_one("#side-input", Input).value = "ASK"
+        self.query_one("#price-input", Input).focus()
+
+    def action_quit(self):
+        self._running = False
+        self.exit()
 
 
 if __name__ == "__main__":

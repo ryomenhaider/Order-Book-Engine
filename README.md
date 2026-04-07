@@ -35,7 +35,7 @@ Required dependencies:
 ### Run the TUI
 
 ```bash
-python tui.py
+uv run python tui.py
 ```
 
 ### Use as a Library
