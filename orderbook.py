@@ -35,15 +35,23 @@ class OrderBook:
 
     def cancel_order(self, order_id: uuid.UUID):
         
+        order = self.orders.get(order_id)
 
-        if order_id in self.orders:
-            self.orders.pop(order_id, None)
+        if order is None:
+            return
+        
+        side = order.side
+        price = order.price
 
-            side = self.orders['side']
-            if side == Side.BID:
-                self.bid.pop(order_id, None)
-            elif side == Side.ASK:
-                self.ask.pop(order_id, None)
-            
-        if not Data.price:
-                del Data.price
+        del self.orders[order_id]
+
+        book = self.ask if side == Side.ASK else self.bid
+        
+        if price in book:
+            try:
+                book[price].remove(order)
+            except ValueError:  
+                pass
+                
+            if not book[price]:
+                del book[price]
